@@ -6,42 +6,53 @@ import shlex
 import shutil
 import time
 
-#from git import Repo
-#from git.exc import GitCommandError, InvalidGitRepositoryError, NoSuchPathError
 from pyrogram.types import Message
 
 from Pbxbot.core import Config, Symbols
-
 from .formatter import humanbytes, readable_time
 
+
+# ===================== PROGRESS =====================
 
 async def progress(
     current: int, total: int, message: Message, start: float, process: str
 ):
     now = time.time()
     diff = now - start
+    if diff <= 0:
+        diff = 1
+
     if round(diff % 10.00) == 0 or current == total:
-        percentage = current * 100 / total
-        speed = current / diff
+        percentage = current * 100 / total if total else 0
+        speed = current / diff if diff else 0
         elapsed_time = round(diff) * 1000
-        complete_time = round((total - current) / speed) * 1000
+        complete_time = (
+            round((total - current) / speed) * 1000 if speed > 0 else 0
+        )
         estimated_total_time = elapsed_time + complete_time
+
         progress_str = "**[{0}{1}] : {2}%\n**".format(
-            "".join(["●" for i in range(math.floor(percentage / 10))]),
-            "".join(["○" for i in range(10 - math.floor(percentage / 10))]),
+            "".join(["●" for _ in range(math.floor(percentage / 10))]),
+            "".join(["○" for _ in range(10 - math.floor(percentage / 10))]),
             round(percentage, 2),
         )
+
         msg = (
             progress_str
-            + "__{0}__ **𝗈𝖿** __{1}__\n**𝖲𝗉𝖾𝖾𝖽:** __{2}/s__\n**𝖤𝖳𝖠:** __{3}__".format(
+            + "__{0}__ **𝗈𝖿** __{1}__\n"
+              "**𝖲𝗉𝖾𝖾𝖽:** __{2}/s__\n"
+              "**𝖤𝖳𝖠:** __{3}__".format(
                 humanbytes(current),
                 humanbytes(total),
                 humanbytes(speed),
                 readable_time(estimated_total_time / 1000),
             )
         )
+
         await message.edit_text(f"**{process} ...**\n\n{msg}")
 
+
+# ===================== FILE UTILS =====================
 
 async def get_files_from_directory(directory: str) -> list:
     all_files = []
@@ -51,10 +62,14 @@ async def get_files_from_directory(directory: str) -> list:
     return all_files
 
 
+# ===================== RUN CMD =====================
+
 async def runcmd(cmd: str) -> tuple[str, str, int, int]:
     args = shlex.split(cmd)
     process = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await process.communicate()
     return (
@@ -65,75 +80,62 @@ async def runcmd(cmd: str) -> tuple[str, str, int, int]:
     )
 
 
+# ===================== ENV UPDATE =====================
+
 async def update_dotenv(key: str, value: str) -> None:
+    if not os.path.exists(".env"):
+        return
+
     with open(".env", "r") as file:
         data = file.readlines()
 
+    updated = False
     for index, line in enumerate(data):
         if line.startswith(f"{key}="):
             data[index] = f"{key}={value}\n"
+            updated = True
             break
+
+    if not updated:
+        data.append(f"{key}={value}\n")
 
     with open(".env", "w") as file:
         file.writelines(data)
 
+
+# ===================== RESTART =====================
 
 async def restart(
     update: bool = False,
     clean_up: bool = False,
     shutdown: bool = False,
 ):
-    try:
-        shutil.rmtree(Config.DWL_DIR)
-        shutil.rmtree(Config.TEMP_DIR)
-    except BaseException:
-        pass
+    # cleanup temp folders
+    for folder in (Config.DWL_DIR, Config.TEMP_DIR):
+        with contextlib.suppress(Exception):
+            shutil.rmtree(folder)
 
     if clean_up:
-        os.system(f"mkdir {Config.DWL_DIR}")
-        os.system(f"mkdir {Config.TEMP_DIR}")
+        os.makedirs(Config.DWL_DIR, exist_ok=True)
+        os.makedirs(Config.TEMP_DIR, exist_ok=True)
         return
 
     if shutdown:
-        return os.system(f"kill -9 {os.getpid()}")
+        os._exit(0)
 
-    cmd = (
-        "git pull && pip3 install -U -r requirements.txt && bash start.sh"
-        if update
-        else "bash start.sh"
-    )
+    # ❌ git pull REMOVED (cloud safe)
+    cmd = "bash start.sh"
 
-    os.system(f"kill -9 {os.getpid()} && {cmd}")
+    os.execvp("bash", ["bash", "-c", cmd])
 
 
-async def gen_changelogs(repo: Repo, branch: str) -> str:
-    changelogs = ""
-    commits = list(repo.iter_commits(branch))[:5]
-    for index, commit in enumerate(commits):
-        changelogs += f"**{Symbols.triangle_right} {index + 1}.** `{commit.summary}`\n"
+# ===================== GIT STUBS (SAFE) =====================
 
-    return changelogs
+async def gen_changelogs(*args, **kwargs) -> str:
+    # git disabled on cloud platforms
+    return f"**{Symbols.triangle_right} Updates disabled on this platform**"
 
 
-async def initialize_git(git_repo: str):
-    force = False
-    try:
-        repo = Repo()
-    except NoSuchPathError as pathErr:
-        repo.__del__()
-        return False, pathErr, force
-    except GitCommandError as gitErr:
-        repo.__del__()
-        return False, gitErr, force
-    except InvalidGitRepositoryError:
-        repo = Repo.init()
-        origin = repo.create_remote("upstream", f"https://github.com/{git_repo}")
-        origin.fetch()
-        repo.create_head("master", origin.refs.master)
-        repo.heads.master.set_tracking_branch(origin.refs.master)
-        repo.heads.master.checkout(True)
-        force = True
-    with contextlib.suppress(BaseException):
-        repo.create_remote("upstream", f"https://github.com/{git_repo}")
-
-    return True, repo, force
+async def initialize_git(*args, **kwargs):
+    # git intentionally disabled (Choreo / Heroku safe)
+    return True, None, False
