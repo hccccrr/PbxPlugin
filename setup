@@ -1,0 +1,84 @@
+#!/bin/bash
+
+pprint (){
+        cred='\033[0;31m'
+        cgreen='\033[0;32m'
+        cyellow='\033[0;33m'
+        cblue='\033[0;34m'
+        cpurple='\033[0;35m'
+        eval "export color='$cpurple'"
+        [ ! -z $2 ] && eval "export color=\"\$$2\""
+        printf "$color $1"
+}
+
+color_reset(){ printf '\033[0;37m';}
+
+yesnoprompt(){
+        old_stty_cfg=$(stty -g)
+        stty raw -echo ; answer=$(head -c 1)
+        stty $old_stty_cfg
+        echo "$answer" | grep -iq "^y"
+}
+
+update() {
+        pprint "\n\nUpdating package list.. "
+        sudo apt update &>/dev/null
+        pprint "DONE\n" "cgreen"
+}
+
+packages(){
+        if ! command -v pip &>/dev/null; then
+                pprint "Installing python3-pip..."
+                sudo apt install python3-pip -y &>/dev/null || exit 1
+        fi
+
+        if ! command -v git &>/dev/null; then
+                pprint "Installing git..."
+                sudo apt install git -y &>/dev/null || exit 1
+        fi
+}
+
+installation(){
+        pprint "\n\nInstalling python requirements..."
+        pip3 install -U pip &>/dev/null &&
+        pip3 install -U -r requirements.txt &>/dev/null &&
+        pprint "DONE.\n" "cgreen" || (pprint "FAIL.\n" "cred"; exit 1)
+}
+
+clear
+pprint "Welcome to USERBOT Setup Installer\n\n"
+pprint "Script needs sudo permission...\n"
+sudo test || exit
+
+update
+packages
+installation
+
+clear
+pprint "\nEnter Your Userbot Vars Below\n\n"
+
+pprint "API ID: "; color_reset; read api_id
+pprint "\nAPI HASH: "; color_reset; read api_hash
+pprint "\nBOT TOKEN: "; color_reset; read bot_token
+pprint "\nDATABASE URL (Mongo): "; color_reset; read mongo_db
+pprint "\nLOGGER GROUP ID: "; color_reset; read logger
+pprint "\nOWNER ID: "; color_reset; read owner_id
+
+pprint "\n\nSaving your vars...\n" "cgreen"
+
+rm -f .env
+
+cat > .env <<EOF
+API_ID=$api_id
+API_HASH=$api_hash
+BOT_TOKEN=$bot_token
+DATABASE_URL=$mongo_db
+LOGGER_ID=$logger
+OWNER_ID=$owner_id
+EOF
+
+clear
+pprint "\n\nUSERBOT setup completed successfully! ✅\n" "cgreen"
+pprint "\nYour .env file has been created."
+pprint "\nEdit anytime using: nano .env"
+pprint "\nStart your userbot using: bash start.sh or python3 main.py\n\n"
